@@ -47,7 +47,7 @@ universal hash function, evaluating a given message over a polynomial and using 
 polynomial over a prime field, from 0 to $2^{130}-5$, where the name (Poly\textbf{1305}) stems from. It uses a 256 bit secret, derived via a Password-Based Key Derivation
 Function(PBDKF), using the first 128 bits for the key, k and r for calculating the polynomial.
 
-Poly1305 works by breaking the input in 16 bytes blocks, appending each one with a 1 byte(00000001) to prevent forgery. It then proceeds to apply the following 
+Poly1305 works by breaking the input in 16 bytes blocks, appending each one with a 1 byte(00000001) to prevent forgery, via padding attacks. It then proceeds to apply the following 
 algorithm/formula:
 
 \begin{verbatim}
