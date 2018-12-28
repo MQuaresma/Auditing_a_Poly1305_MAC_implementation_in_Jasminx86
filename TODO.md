@@ -8,3 +8,6 @@
 ## Auditing
 - [ ] Basic run through of the code with comments
 - [ ] Mathematical proof of the assumptions made 
+
+## Others
+- [ ] Script to automate LaTeX compilation process
