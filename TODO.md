@@ -1,7 +1,7 @@
 # TODO
 
 ## Report
-- [ ] Explain Poly1305 MAC
+- [x] Explain Poly1305 MAC
 - [ ] Explain Jasmin implementation
 - [ ] Verify Jasmin implementation assumptions/properties
 
