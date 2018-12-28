@@ -1,7 +1,9 @@
-**/*.jazz
+poly1305.jazz
 **/*.aux
 **/*.bbl
 **/*.bcf
 **/*.blg
 **/*.log
 **/*.xml
+**/.DS_Store
+**/._*

@@ -29,17 +29,19 @@ style=numeric
 }]
 
 \begin{abstract}
-    Current cryptograghic systems all share one common pitfall: lack of focus in performance. This is motivated by the fact that speed isn't always seen as a primary concern
-    for highly critical systems where the security requirements are extremely high. However, the rise in the use of low powered devices such as IoT, smartphones, smartcards,
-    etc has incentivized the investment in highly performant cryptographic systems that can be used in such devices. The present work aims to audit a component of such 
-    a system, namely an implementation of the Poly1305 MAC using Jasmin, a framework for developing high performance and high assurance cryptographic 
-    software(\cite{jasmin_paper}).
-\end{abstract}
+    Poly1305 is a one time authenticator developed with performance in mind, that generates a message authentication code for a given input and secret key. Jasmin is 
+    framework for develpoing high performance and high assurance cryptographic software. The current works aims to examine an implementation of the Poly1305 MAC using
+    the Jasmin framework. The Poly1305 MAC is described in at a high abstraction level, followed by an in-depth analysis of the Jasmin implementation of the algorithm.
+    The work concludes with an auditing/verifcation of the premisses/assumptions that were made for the implementation.
+    \end{abstract}
 
 \section{Introduction}
-Poly1305 is one time authenticator developed with performance in mind(\cite{poly1305_aes_bernstein}) that generates a message authentication code for a given input. 
-When combined with a framework for developing high performance and high assurance cryptographic software such as Jasmin, the result is a high performance tool that 
-can be used in devices with low computational power such as IoT, Smartphones, Smart-cards, etc.
+Message authentication codes play a major role in guaranteeing the authenticity and integrity of data being sent across an untrusted channel. There are many 
+cryptoprimitives that work as MAC's and, for a long time, HMAC(Hash-MACs) were preferred over other MACs due to their performance, with other primitives such 
+as the ones based on universal hashing being discarded. This was further reinforced by the introduction of assembly instructions that performed hash functions 
+directly in hardware, such as Intel's instruction for SHA-256: \textbf{INSERT x86 INSTRUCTION HERE}. The development of cryptoprimitives such as Poly1305 MAC 
+using Jasmin, a framework for developing high performance and high assurance cryptographic software \cite{jasmin_paper}, allowed this tendency to be reversed 
+by obtaining highly performant implementations with relative ease.
 
 \section{Poly1305 explained}
 Poly1305 is a message authentication code(MAC) that guarantees integrity and authenticity of messages. Poly1305 works similarly to a 
@@ -47,8 +49,8 @@ universal hash function, evaluating a given message over a polynomial and using 
 polynomial over a prime field, from 0 to $2^{130}-5$, where the name (Poly\textbf{1305}) stems from. It uses a 256 bit secret, derived via a Password-Based Key Derivation
 Function(PBDKF), using the first 128 bits for the key, k and r for calculating the polynomial.
 
-Poly1305 works by breaking the input in 16 bytes blocks, appending each one with a 1 byte(00000001) to prevent forgery, via padding attacks. It then proceeds to apply the following 
-algorithm/formula:
+Poly1305 works by breaking the input in 16 byte blocks, appending each one with a 1 byte(00000001) to prevent forgery, via padding attacks. It then proceeds to apply the 
+following algorithm/formula:
 
 \begin{verbatim}
 h = 0
