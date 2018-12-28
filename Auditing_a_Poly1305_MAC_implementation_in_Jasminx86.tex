@@ -61,6 +61,7 @@ mac = (h + k) mod 2^130-5
 
 where:
 \begin{itemize}
+    \item \texttt{h} is a (temporary) accumulator for the successive multiplications/additions
     \item \texttt{block} is a 16 byte message block plus a 1 byte
     \item \texttt{r} and \texttt{k} are the 128 bit values derived from the 256 bit secret
 \end{itemize}
@@ -71,18 +72,18 @@ multiplication futhermore, carry propagation is delayed to allow for fast(er) mo
 
 \subsection{(Schoolbook) Multiplication}
 After adding the message block $mi$ to the current $h$ value, $h$ is multiplied with $r$ using schoolbook multiplication. Note that, to perform this multiplciation, 
-$r$ and $h$ are divided in five 4 byte(32 bit) blocks, called limbs, and multiplied with eachother as follows:
+$r$ and $h$ are divided in five 4 byte(32 bit) blocks, called limbs \label{def_limb}, and multiplied with eachother as follows:
 \begin{footnotesize}
 \begin{tabular}{cccccc}
     &    &    &    &    &    \\
-    & m5 & m4 & m3 & m2 & m1 \\
+    & h5 & h4 & h3 & h2 & h1 \\
 *   & r5 & r4 & r3 & r2 & r1 \\
 \hline
-    & m5*r1 & m4*r1 & m3*r1 & m2*r1 & m1*r1 \\
-+   & m4*r2 & m3*r2 & m2*r2 & m1*r2 & \textbf{5*m5*r2} \\
-+   & m3*r3 & m2*r3 & m1*r3 & \textbf{5*m5*r3} & \textbf{5*m4*r3} \\
-+   & m2*r4 & m1*r4 & \textbf{5*m5*r4} & \textbf{5*m4*r4} & \textbf{5*m3*r4} \\
-+   & m1*r5 & \textbf{5*m5*r5} & \textbf{5*m4*r5} & \textbf{5*m3*r5} & \textbf{5*m2*r5}\\
+    & h5*r1 & h4*r1 & h3*r1 & h2*r1 & h1*r1 \\
++   & h4*r2 & h3*r2 & h2*r2 & h1*r2 & \textbf{5*h5*r2} \\
++   & h3*r3 & h2*r3 & h1*r3 & \textbf{5*h5*r3} & \textbf{5*h4*r3} \\
++   & h2*r4 & h1*r4 & \textbf{5*h5*r4} & \textbf{5*h4*r4} & \textbf{5*h3*r4} \\
++   & h1*r5 & \textbf{5*h5*r5} & \textbf{5*h4*r5} & \textbf{5*h3*r5} & \textbf{5*h2*r5}\\
     &    &    &    &    &    \\
 \end{tabular}
 \end{footnotesize}
@@ -96,6 +97,19 @@ $$mac = (h+k) \mod{2^{130}-5} $$
 and the result is the MAC of the message.
 \newline
 The full modular reduction is just a matter of checking whether $h+k$ exceeds $2^{130}-5$, and subtracting $2^{130}-5$ if it is.
+
+\subsection{Limb size}
+As explained before (\ref{def_limb}), $h$ and $r$ are divided in 32 bit blocks called limbs and subsequently multiplied via schoolbook multiplication. There is a caviat
+in this process, if a $h$ limb spans 32 bits, a multiplication will cause an overflow of a 64 bit register thus, it will make it imperative to perform carry propagation
+in each multiplication, hindering performance significantly. To prevent this from happening, Poly1305 clears 22 bits from $r$ in the following manner:
+\begin{verbatim}
+r[0] = r[0] & 0x0fffffff
+r[2] = r[2] & 0x0ffffffc
+r[3] = r[3] & 0x0ffffffc
+r[4] = r[4] & 0x0ffffffc
+\end{verbatim}
+
+Thus each $r$ limb will have, at most, 28 bits set (32-4). As a consequence, even if $h$ limbs span 32 bits, a multiplication will only take up 60 bits (28+32).
 
 \section{Jasmin Poly1305 Implementation}
 Let's now examine an implementation of the Poly1305 using Jasmin. Jasmin is a framework for developing cryptographic software inspired by qhasm, however Jasmin uses Coq 
