@@ -87,10 +87,12 @@ $r$ and $h$ are divided in five 4 byte(32 bit) blocks, called limbs \label{def_l
     &    &    &    &    &    \\
 \end{tabular}
 \end{footnotesize}
-The expressions in bold are the modular reductions of the values overflowing 130 bits. This is possible due to the fact that $2^{130}$ is congruent with $5$:
-\textbf{i.e} $$2^{130} \equiv 5 \pmod{2^{130}-5}$$ hence why choosing a prime that is of the form $2^n-q$, with $q$ being a small number(such as $2^{130}-\textbf{5}$), 
-is important because it allows modular reduction to be performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be 
-delayed until the very end of the MAC calculation).
+The expressions in bold are the modular reductions of the values overflowing 128 bits. Since the modular reduction is over $2^{130}-5$, requiring 130 bits, and the limbs
+are 32 bits, the closest multiple is 128, thus a shift of 2 bits to the right is required. The modular reduction is possible due to the fact that $2^{130}$ is congruent
+with $5$:
+$$2^{130} \equiv 5 \pmod{2^{130}-5}$$ 
+hence why choosing a prime that is of the form $2^n-q$, with $q$ being a small number(such as $2^{130}-\textbf{5}$), is important because it allows modular reduction to be 
+performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be delayed until the very end of the MAC calculation).
 
 \subsection{Limb size}
 As explained before (\ref{def_limb}), $h$ and $r$ are divided in 32 bit blocks called limbs and subsequently multiplied via schoolbook multiplication. There is a caviat
