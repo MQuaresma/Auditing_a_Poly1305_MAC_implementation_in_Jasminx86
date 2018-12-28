@@ -66,14 +66,15 @@ where:
     \item \texttt{r} and \texttt{k} are the 128 bit values derived from the 256 bit key used by Poly1305
 \end{itemize}
 
-One of the consequences of the presented algorithm is the fact that, after a certain number of blocks, the variable $h$ will overflow due to the successive multiplications 
-therefore, it is necessary to perform the calculation via modular arithmetic. To perform this in an efficient way the prime $2^{130}-5$ was chosen to perform school book 
-multiplication futhermore carry propagation is delayed to allow for fast(er) modulo reduction.
+One of the consequences of the presented algorithm is the fact that, after a certain number of blocks, the variable $h$ will overflow due to the successive multiplications.
+Therefore, it is necessary to perform the calculation via modular arithmetic. To do this in an efficient manner prime $2^{130}-5$ was chosen to perform school book 
+multiplication futhermore, carry propagation is delayed to allow for fast(er) modular reduction.
 
 \subsection{(Schoolbook) Multiplication}
 After adding the message block $mi$ to the current $h$ value, $h$ is multiplied with $r$ using schoolbook multiplication, as such $r$ and $h$ are divided in five 4 byte
 (32 bit) blocks and multiplied with eachother:
 \begin{tabular}{cccccc}
+    &    &    &    &    &    \\
     & m5 & m4 & m3 & m2 & m1 \\
 *   & r5 & r4 & r3 & r2 & r1 \\
 \hline
@@ -82,10 +83,11 @@ After adding the message block $mi$ to the current $h$ value, $h$ is multiplied 
 +   & m3*r3 & m2*r3 & m1*r3 & \textbf{5*m5*r3} & \textbf{5*m4*r3} \\
 +   & m2*r4 & m1*r4 & \textbf{5*m5*r4} & \textbf{5*m4*r4} & \textbf{5*m3*r4} \\
 +   & m1*r5 & \textbf{5*m5*r5} & \textbf{5*m4*r5} & \textbf{5*m3*r5} & \textbf{5*m2*r5}\\
+    &    &    &    &    &    \\
 \end{tabular}
-The expressions in bold are the modular reductions of the values overflowing the 130 bits. This is possible due to the fact that $2^{130}$ is congruent with $5$ 
+The expressions in bold are the modular reductions of the values overflowing 130 bits. This is possible due to the fact that $2^{130}$ is congruent with $5$ 
 \textbf{i.e} $$2^{130} \equiv 5 \pmod{2^{130}-5}$$ hence why choosing a prime that is of the form $2^n-q$, with $q$ being a small number(such as $2^{130}-\textbf{5}$), 
-is important, because it allows modular reduction to be performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be 
+is important because it allows modular reduction to be performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be 
 delayed until the very end).
 
 After processing the entire message \textbf{i.e} all it's blocks, the value $k$ is added and a final full modular reduction is performed:
