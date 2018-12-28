@@ -92,12 +92,6 @@ The expressions in bold are the modular reductions of the values overflowing 130
 is important because it allows modular reduction to be performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be 
 delayed until the very end of the MAC calculation).
 
-After processing the entire message(\textbf{i.e} all it's blocks) the value $k$ is added and a final full modular reduction is performed:
-$$mac = (h+k) \mod{2^{130}-5} $$
-and the result is the MAC of the message.
-\newline
-The full modular reduction is just a matter of checking whether $h+k$ exceeds $2^{130}-5$, and subtracting $2^{130}-5$ if it is.
-
 \subsection{Limb size}
 As explained before (\ref{def_limb}), $h$ and $r$ are divided in 32 bit blocks called limbs and subsequently multiplied via schoolbook multiplication. There is a caviat
 in this process, if a $h$ limb spans 32 bits, a multiplication will cause an overflow of a 64 bit register thus, it will make it imperative to perform carry propagation
@@ -110,6 +104,12 @@ r[4] = r[4] & 0x0ffffffc
 \end{verbatim}
 
 Thus each $r$ limb will have, at most, 28 bits set (32-4). As a consequence, even if $h$ limbs span 32 bits, a multiplication will only take up 60 bits (28+32).
+
+After processing the entire message(\textbf{i.e} all it's blocks) the value $k$ is added and a final full modular reduction is performed:
+$$mac = (h+k) \mod{2^{130}-5} $$
+and the result is the MAC of the message.
+\newline
+The full modular reduction is just a matter of checking whether $h+k$ exceeds $2^{130}-5$, and subtracting $2^{130}-5$ if it is.
 
 \section{Jasmin Poly1305 Implementation}
 Let's now examine an implementation of the Poly1305 using Jasmin. Jasmin is a framework for developing cryptographic software inspired by qhasm, however Jasmin uses Coq 
