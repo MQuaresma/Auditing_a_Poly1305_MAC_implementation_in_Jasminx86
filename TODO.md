@@ -11,3 +11,6 @@
 
 ## Others
 - [ ] Script to automate LaTeX compilation process
+
+## Improvements
+- [ ] More explicit explanation of the implementation
