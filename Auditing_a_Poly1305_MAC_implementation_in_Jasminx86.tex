@@ -92,7 +92,7 @@ To perform this multiplication, $r$ and $h$ are divided in five 4 byte(32 bit) b
     &    &    &    &    &    \\
 \end{tabular}
 \end{footnotesize}
-The expressions in \textbf{bold} are the modular reductions of the values overflowing 128 bits. Since the modular reduction is performed over $2^{130}-5$, which requires 130 bits
+The expressions in \textbf{bold} are the modular reductions of the values overflowing 130 bits. Since the modular reduction is performed over $2^{130}-5$, which requires 130 bits
 to represent, and the limbs are 32 bits, the closest multiple to 130 is 128, thus the limbs are shifted 2 bits to the right. The modular reduction is performed by multiplying the
 limbs by $5$, due to the fact that $2^{130}$ is congruent with $5$:
 $$2^{130} \equiv 5 \pmod{2^{130}-5}$$ 
@@ -156,25 +156,36 @@ Using the parameter \texttt{k}, the value of $r$ is loaded and the limb reductio
 This removes the need to perform this reduction everytime a modular operation takes place, as we'll see later.
 
 \subsection{MAC Calculation}
-The generation of the MAC is performed by \texttt{poly1305\_ref3\_update} and, when the message size isn't a multiple of 16 bytes, the remaining bytes are processed by
-\texttt{poly1305\_ref3\_last}.
-\newline
-\texttt{poly1305\_ref3\_update} works by applying the algorithm described in section \ref{poly135_101}. It first loads each message (16 byte) block from memory location
-pointed to by \texttt{in} and adds it to the accumulator \texttt{h} by calling \texttt{add\_bit}. \texttt{add\_bit} is also responsible for appending a 1 byte
-to each message block. The multiplication and modular reduction are then performed by calling:
+The generation of the MAC is performed by \texttt{poly1305\_ref3\_update} which breaks the message in 16 byte blocks adds each block to \texttt{h} and performs
+the multplication with modular reduction, similar to the algorithm described in section \ref{poly135_101}:
+\begin{verbatim}
+while(inlen >= 16)
+  { m = load(in);
+    h = add_bit(h, m, 1);
+    h = mulmod(h, r, r54);
+    in += 16;
+    inlen -= 16;
+  }
+\end{verbatim}
 
+It first loads each 16 byte block from the memory location pointed to by \texttt{in} and adds it to the accumulator \texttt{h} by calling: 
+\begin{Verbatim}[fontsize=\footnotesize]
+fn add_bit(reg u64[3] h, reg u64[2] m, inline int b) 
+    -> reg u64[3]
+\end{Verbatim}
+
+\texttt{add\_bit} is also responsible for appending a 1 byte to each message block. The multiplication and modular reduction are then performed by calling:
 \begin{Verbatim}[fontsize=\footnotesize]
 
 fn mulmod(reg u64[3] h, reg u64[2] r, reg u64 r54) 
    -> reg u64[3]
 
 \end{Verbatim}
-
 which returns the corresponding value of \texttt{h} after each iteration.
 
 \subsubsection{Modular multiplication}
 Before looking at the way \texttt{mulmod} performs the school book multiplication with modular reduction, it's important to note that this implementation uses 
-limbs that are 64 bits in size(\texttt{reg u64[3] h, reg u64[2] r, reg u64 r54}), as opposed to 32 bits, hence the schoolbook multiplication takes the form of:
+limbs that are 64 bits in size(\texttt{reg u64[3] h, reg u64[2] r, reg u64 r54}) as opposed to 32 bits, hence the schoolbook multiplication takes the form of:
 
 \begin{tabular}{cccc}
     &           &                   &                   \\
@@ -190,7 +201,6 @@ limbs that are 64 bits in size(\texttt{reg u64[3] h, reg u64[2] r, reg u64 r54})
 
 which is equivalent to:
 $$ 2^{128}*h2*r0 + 2^{64}*(h0*r1+h1*r0+h2*r54) + h0*r0+h1*r54 $$
-and represents a slight variation over the previously multiplication using 32 bit limbs.
 
 With this in mind we can now begin to look at the code in \texttt{mulmod} used to perform this (schoolbook) multiplication. For the first two 64 bit limbs 
 the code that implements the calculations presented are similar. Therefore, for sake of simplicity, only the code block corresponding to $h0*r0+h1*r54$ will 
@@ -210,19 +220,85 @@ cf, t[0] += low;
 
 To perform the multiplication, two variables are declared in \texttt{mulmod}: \texttt{low} which is used to store the \texttt{h} limbs since these are used multiple
 times and can't be overwritten (this will not stand for the $h2*r0$ product as we will see) and \texttt{high} which holds the carry of the product between 
-each \texttt{r} and \texttt{h} limb. The result of the products is then stored in the \texttt{t} array, which is seen as a little-endian number where each position
-represents a digit between $0$ and $2^{64}-1$. The carry stored in \texttt{high} is added to the following 64 bit limb of \texttt{t}:
+each \texttt{r} and \texttt{h} limb. The lines 
+\begin{verbatim}
+high, low = low * r[0];
+high, low = low *r54
+\end{verbatim}
+perform the products $h0*r0$ and $h1*(r1>>2)*5$ respectively.
+The result of these products are then stored in the \texttt{t} array, which is seen as a little-endian number where each position represents a digit between $0$ 
+and $2^{64}-1$: 
+\begin{itemize}
+    \item t[0] : $2^{0}$
+    \item t[1] : $2^{64}$
+    \item t[2] : $2^{128}$
+\end{itemize}
+
+The carry stored in \texttt{high} is added to the following 64 bit limb of \texttt{t}:
 \begin{verbatim}
 t[1] = high;
 ...
  _, t[1] += high + cf;
 \end{verbatim}
-The modulo trick is performed by multiplying the overflowing $h1$ limb with the pre calculated value $r54=r1>>2*5$. The same mechanism is used for $h2*r54$:
+The modulo reduction is performed by multiplying $h1$ (or $h2$) with the pre calculated value $r54=r1>>2*5$. The same mechanism is used for $h2*5*r1$:
 \begin{verbatim}
 low = h[2];
 low *= r54;
 \end{verbatim}
 
+After performing all the smaller(magnitude) operations, $h2*r0$ is performed in place: \texttt{h[2] *= r[0];} since the value of h is no longer needed and
+can be merged with \texttt{t}, first by performing carry propagation: \texttt{h[2] += t[2];}.
+Since \texttt{h[2]} is a 64 bit value, as are \texttt{h[1]} and \texttt{h[0]}, we need to reduce \texttt{h[2]} to make sure h has, at most, 130 bits set. 
+First we we shift the value of \texttt{h[2]} 2 bits to the right keeping the 2 least significant bits to make it 130 bits since \texttt{h[1]} and \texttt{h[0]}
+already have 64 bits each, totalling 128 bits. After the shift we use the modular reduction trick by multiplying $h[2]>>2$ with $5$:
+\begin{verbatim}
+h2r = h[2];
+h2rx4 = h[2];
+h[2] &= 3; // clear the remaining bits
+h2r >>= 2; // (h[2]>>2)
+h2rx4 &= -4; // clear first 2 bits: (h[2]>>2)<<2
+h2r += h2rx4;
+\end{verbatim}
+
+The value in $h2r$ ($h2r$educed) is then added to h[0] and the carry is propagated:
+
+\begin{verbatim}
+cf, h[0] += h2r;
+cf, h[1] += 0 + cf;
+_, h[2] += 0 + cf;
+\end{verbatim}
+
+making $\texttt{h} = (h*r)\mod{2^{130}}$. This value is then returned by \texttt{mulmod}.
+
+After all the 16 byte blocks have been digested, \texttt{poly1305\_ref3\_last} handles the remaining bytes, when the message size isn't a multiple of 16 bytes:
+\begin{verbatim}
+if(inlen > 0)
+  { m = load_last(in, inlen);
+    // load last already sets the last bit
+    h = add_bit(h, m, 0);
+    h = mulmod(h, r, r54);
+  }
+\end{verbatim}
+In this case, \texttt{load\_last} is responsible for setting the last bit of the block to one:
+\begin{verbatim}
+  s[0] = 0;
+  s[1] = 0;
+
+  j = 0;
+  while(j < len)
+  { c = (u8)[ptr + j];
+    s[u8 (int)j] = c;
+    j += 1;
+  }
+
+  s[u8 (int)j] = 0x1; //sets last byte to zero
+\end{verbatim}
+
+\subsubsection{Full modular reduction}
+The full modular reduction, as we already mentioned, is only performed at the end, in this case by calling:
+\begin{verbatim}
+fn freeze(reg u64[3] h) -> reg u64[3]
+\end{verbatim}
 
 
 \section{Code verification/audition}
