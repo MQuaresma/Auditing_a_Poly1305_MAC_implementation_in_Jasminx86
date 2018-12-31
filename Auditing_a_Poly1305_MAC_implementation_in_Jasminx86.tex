@@ -46,13 +46,14 @@ to be reversed by obtaining highly performant implementations with relative ease
 
 \section{Poly1305 explained}
 \label{poly135_101}
-Poly1305 is a message authentication code(MAC) that guarantees integrity and authenticity of messages. It achieves so similarly to a universal hash function, using a 
-polynomial over a prime field to calculate a MAC for a given message,key pair. As stated Poly1305 evaluates a polynomial over a prime field, the prime, $2^{130}-5$, 
+Poly1305 is a message authentication code(MAC) that guarantees integrity and authenticity of messages. It achieves using a mechanism similar to a universal hash function,
+calculating a polynomial over a prime field to calculate a MAC for a given message,key pair. As stated Poly1305 evaluates a polynomial over a prime field, the prime, $2^{130}-5$, 
 being where the name (Poly\textbf{1305}) stems from. Thus, Poly1305 can be expressed by the following expression: 
 $$mac = (m1 * r^4 + m2 * r^3 + m3 * r^2 + m4 * r + k) \mod{p} $$ 
 where $mi$ is the i-th block of the message. Being an authenticator, Poly1305 also takes in a 256 bit secret, derived via a Password-Based Key Derivation Function(PBDKF), 
-that is then split up into two blocks of 128 bits each, the first block being used for the parameter $k$, and the second for the parameter $r$. Poly1305 works by breaking 
-the input in 16 byte blocks, appending each block with a 1 byte(00000001) to prevent forgery. It then proceeds to apply the following algorithm/formula:
+that is then split up into two blocks of 128 bits each, the first block being used for the parameter $r$ which will be used as coefficient for the polynomial, and the second 
+for the parameter $k$. Poly1305 works by breaking the input in 16 byte blocks, appending each block with a 1 byte(00000001) to prevent forgery, and then uses
+this values as the coefficients of the polynomial previously described, applying the following algorithm/formula:
 
 \begin{verbatim}
 h = 0
@@ -65,34 +66,35 @@ mac = (h + k) mod 2^130-5
 where:
 \begin{itemize}
     \item \texttt{h} is a (temporary) accumulator for the successive multiplications/additions
-    \item \texttt{block} is a 16 byte message block plus a 1 byte
+    \item \texttt{block} is a 17 byte block: 16 byte message block + 1 byte
     \item \texttt{r} and \texttt{k} are the 128 bit values derived from the 256 bit secret
 \end{itemize}
 
 One of the consequences of the presented algorithm is the fact that, after a certain number of blocks, the variable $h$ will overflow due to the successive multiplications.
 Therefore, it is necessary to perform the calculation via modular arithmetic. To do this in an efficient manner the prime $2^{130}-5$ was chosen to perform schoolbook 
-multiplication futhermore, carry propagation is delayed to allow for fast(er) modular reduction.
+multiplication in a modular fashion. To further improve performance carry propagation is delayed, made possible by the fact that a number such as $2^{130}-5$ was chosen.
 
 \subsection{(Schoolbook) Multiplication}
-Following the previously presented the algorithm, after adding each message block to the current $h$ value, $h$ is multiplied with $r$ using schoolbook multiplication. 
-To perform this multiplication, $r$ and $h$ are divided in five 4 byte(32 bit) blocks, called limbs \label{def_limb}, and multiplied with eachother as follows:
+Following the previously presented algorithm, after adding each message block to the current $h$ value, $h$ is multiplied with $r$ using schoolbook multiplication. 
+To perform this multiplication, $r$ and $h$ are divided in five 4 byte(32 bit) blocks, called limbs\label{def_limb}, and multiplied with eachother as follows:
 \begin{footnotesize}
 \begin{tabular}{cccccc}
+\\
     & ($2^{128}$)   & ($2^{96}$)    & ($2^{64}$)    & ($2^{32}$)    & ($2^{0}$)     \\
     & h4            & h3            & h2            & h1            & h0            \\
 *   & r4            & r3            & r2            & r1            & r0            \\
 \hline
     & h4*r0 & h3*r0 & h2*r0 & h1*r0 & h0*r0 \\
-+   & h3*r1 & h2*r1 & h1*r1 & h0*r1 & \textbf{4*h4*r1} \\
-+   & h2*r2 & h1*r2 & h0*r2 & \textbf{4*h4*r2} & \textbf{4*h3*r2} \\
-+   & h1*r3 & h0*r3 & \textbf{4*h4*r3} & \textbf{4*h3*r3} & \textbf{4*h2*r3} \\
-+   & h0*r4 & \textbf{4*h4*r4} & \textbf{4*h3*r4} & \textbf{4*h2*r4} & \textbf{4*h1*r4}\\
++   & h3*r1 & h2*r1 & h1*r1 & h0*r1 & \textbf{5*h4*r1} \\
++   & h2*r2 & h1*r2 & h0*r2 & \textbf{5*h4*r2} & \textbf{5*h3*r2} \\
++   & h1*r3 & h0*r3 & \textbf{5*h4*r3} & \textbf{5*h3*r3} & \textbf{5*h2*r3} \\
++   & h0*r4 & \textbf{5*h4*r4} & \textbf{5*h3*r4} & \textbf{5*h2*r4} & \textbf{5*h1*r4}\\
     &    &    &    &    &    \\
 \end{tabular}
 \end{footnotesize}
-The expressions in bold are the modular reductions of the values overflowing 128 bits. Since the modular reduction is performed over $2^{130}-5$, which requires 130 bits
-to represent, and the limbs are 32 bits, the closest multiple to 130 is 128, thus the limbs are shifted 2 bits to the right. The modular reduction is then possible due to 
-the fact that $2^{130}$ is congruent with $5$:
+The expressions in \textbf{bold} are the modular reductions of the values overflowing 128 bits. Since the modular reduction is performed over $2^{130}-5$, which requires 130 bits
+to represent, and the limbs are 32 bits, the closest multiple to 130 is 128, thus the limbs are shifted 2 bits to the right. The modular reduction is performed by multiplying the
+limbs by $5$, due to the fact that $2^{130}$ is congruent with $5$:
 $$2^{130} \equiv 5 \pmod{2^{130}-5}$$ 
 hence why choosing a prime that is of the form $2^n-q$, with $q$ being a small number(such as $2^{130}-\textbf{5}$), is important, because it allows modular reduction to be 
 performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be delayed until the very end of the MAC calculation).
@@ -100,7 +102,7 @@ performed by multiplying by 5 (\textbf{n.b.} this isn't a full modular reduction
 \subsection{Limb size}
 As explained before (\ref{def_limb}), $h$ and $r$ are divided in 32 bit blocks called limbs and subsequently multiplied via schoolbook multiplication. There is a caviat
 in this process, if a $h$ limb spans 32 bits, a multiplication will take up 64 bits making it impossible to delay carry propagation, hindering performance significantly. 
-To prevent this from happening, 22 bits from $r$ in the following manner:
+To prevent this from happening, 22 bits are removed from $r$ in the following manner:
 \begin{verbatim}
 r[0] = r[0] & 0x0fffffff
 r[2] = r[2] & 0x0ffffffc
@@ -112,12 +114,12 @@ Thus each $r$ limb will have, at most, 28 bits set (32-4). As a consequence, eve
 
 After processing the entire message(\textbf{i.e} all it's blocks) the value $k$ is added and a final full modular reduction is performed:
 $$mac = (h+k) \mod{2^{130}-5} $$
-and the result is the MAC of the message.
+the result being the MAC of the message.
 \newline
 The full modular reduction is just a matter of checking whether $h+k$ exceeds $2^{130}-5$, and subtracting $2^{130}-5$ if it is.
 
 \section{Jasmin Poly1305 Implementation}
-Let's now examine an implementation of Poly1305 using Jasmin. Jasmin is a framework for developing cryptographic software inspired by qhasm, however Jasmin uses Coq
+Let's now examine an implementation of Poly1305 using Jasmin. As previously stated Jasmin is a framework for developing cryptographic software inspired by qhasm, however Jasmin uses Coq
 proof assistant to formally verify the (assembly) code generated by the (Jasmin) compiler, providing high \textit{assurance} high performance cryptograhic code 
 \cite{jasmin_paper}. The function that represents the entry point for the implementation has the following signature: 
 
@@ -127,11 +129,11 @@ poly1305_ref3(reg u64 out, reg u64 in, reg u64 inlen, reg u64 k)
 
 \end{Verbatim}
 
-This function takes in as parameters \texttt{out, in} and \texttt{k} which are (64 bit) pointers to the output, input message and 256 bit secret location in memory 
+This function takes as parameters \texttt{out, in} and \texttt{k} which are (64 bit) pointers to the output, input message and 256 bit secret location in memory 
 respectively. The \texttt{inlen} parameter holds, as the name implies, the length of the input.
 
 \subsection{Setup}
-The parameters used in Poly1305 are loaded and initialized by calling 
+The parameters used in Poly1305($h$, $r$, $k$) are loaded and initialized by calling 
 
 \begin{Verbatim}[fontsize=\footnotesize]
 
@@ -157,8 +159,8 @@ This removes the need to perform this reduction everytime a modular operation ta
 The generation of the MAC is performed by \texttt{poly1305\_ref3\_update} and, when the message size isn't a multiple of 16 bytes, the remaining bytes are processed by
 \texttt{poly1305\_ref3\_last}.
 \newline
-\texttt{poly1305\_ref3\_update} works applying the algorithm described in section \ref{poly135_101}. It first loads each message (16 byte) block from memory location
-pointed to by \texttt{in} pointer, and adds it to the accumulator \texttt{h} by calling \texttt{add\_bit}. \texttt{add\_bit} is also responsible for appending a 1 byte
+\texttt{poly1305\_ref3\_update} works by applying the algorithm described in section \ref{poly135_101}. It first loads each message (16 byte) block from memory location
+pointed to by \texttt{in} and adds it to the accumulator \texttt{h} by calling \texttt{add\_bit}. \texttt{add\_bit} is also responsible for appending a 1 byte
 to each message block. The multiplication and modular reduction are then performed by calling:
 
 \begin{Verbatim}[fontsize=\footnotesize]
@@ -168,11 +170,11 @@ fn mulmod(reg u64[3] h, reg u64[2] r, reg u64 r54)
 
 \end{Verbatim}
 
-which returns the corresponding value of \texttt{h} after each iteration/message block.
+which returns the corresponding value of \texttt{h} after each iteration.
 
 \subsubsection{Modular multiplication}
-One of the things to note in the implementation being examined is the fact that limbs are 64 bits in size, as opposed to 32 bits, hence the schoolbook multiplication 
-takes the form of:
+Before looking at the way \texttt{mulmod} performs the school book multiplication with modular reduction, it's important to note that this implementation uses 
+limbs that are 64 bits in size(\texttt{reg u64[3] h, reg u64[2] r, reg u64 r54}), as opposed to 32 bits, hence the schoolbook multiplication takes the form of:
 
 \begin{tabular}{cccc}
     &           &                   &                   \\
@@ -186,31 +188,36 @@ takes the form of:
     &           &                   &                   \\
 \end{tabular}
 
-This format is can also be presented as: 
+which is equivalent to:
 $$ 2^{128}*h2*r0 + 2^{64}*(h0*r1+h1*r0+h2*r54) + h0*r0+h1*r54 $$
 and represents a slight variation over the previously multiplication using 32 bit limbs.
 
-With this in mind we can now begin to look at the code in \texttt{mulmod} used to perform this (schoolbook) multiplication. For the first two limbs of 64 bits 
+With this in mind we can now begin to look at the code in \texttt{mulmod} used to perform this (schoolbook) multiplication. For the first two 64 bit limbs 
 the code that implements the calculations presented are similar. Therefore, for sake of simplicity, only the code block corresponding to $h0*r0+h1*r54$ will 
-be explained.
+be analyzed:
 
 \begin{verbatim}
 low = h[0];
 high, low = low * r[0];
 t[0] = low;
 t[1] = high;
-
+...
 low = h[1];
 high, low = low * r54;
 cf, t[0] += low;
  _, t[1] += high + cf;
 \end{verbatim}
 
-To perform the multiplication, two variables are declared in \texttt{mulmod}: \texttt{low} which is used to store the \texttt{h} limbs since this are used multiple
+To perform the multiplication, two variables are declared in \texttt{mulmod}: \texttt{low} which is used to store the \texttt{h} limbs since these are used multiple
 times and can't be overwritten (this will not stand for the $h2*r0$ product as we will see) and \texttt{high} which holds the carry of the product between 
 each \texttt{r} and \texttt{h} limb. The result of the products is then stored in the \texttt{t} array, which is seen as a little-endian number where each position
-represents a digit between $0$ and $2^{64}-1$. The carry stored in \texttt{high} is added to the following 64 bit limb of \texttt{t}. The modulo trick is performed
-by multiplying the overflowing $h1$ limb with \texttt{r54}, the pre calculated value $r54=r1>>2*5$. The same mechanism is used for $h2*r54$:
+represents a digit between $0$ and $2^{64}-1$. The carry stored in \texttt{high} is added to the following 64 bit limb of \texttt{t}:
+\begin{verbatim}
+t[1] = high;
+...
+ _, t[1] += high + cf;
+\end{verbatim}
+The modulo trick is performed by multiplying the overflowing $h1$ limb with the pre calculated value $r54=r1>>2*5$. The same mechanism is used for $h2*r54$:
 \begin{verbatim}
 low = h[2];
 low *= r54;
