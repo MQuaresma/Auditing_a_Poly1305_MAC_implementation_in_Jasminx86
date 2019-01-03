@@ -46,14 +46,17 @@ to be reversed by obtaining highly performant implementations with relative ease
 
 \section{Poly1305 explained}
 \label{poly135_101}
-Poly1305 is a message authentication code(MAC) that guarantees integrity and authenticity of messages. It achieves using a mechanism similar to a universal hash function,
-calculating a polynomial over a prime field to calculate a MAC for a given message,key pair. As stated Poly1305 evaluates a polynomial over a prime field, the prime, $2^{130}-5$, 
-being where the name (Poly\textbf{1305}) stems from. Thus, Poly1305 can be expressed by the following expression: 
+Poly1305 is a message authentication code(MAC) that guarantees integrity and authenticity of messages by generating a 16 byte digest using a mechanism similar
+to universal hash functions. Poly1305 can also be paired with a symmetric cipher(\cite{poly1305_aes_bernstein}, \cite{poly1305_chacha20_iot}) 
+that guarantees the confidentiality of the information exchanged. 
+As stated Poly1305 works similarly to a universal hash function, as such it evaluates a polynomial over a prime field, the prime, $2^{130}-5$, being where the 
+name (Poly\textbf{1305}) stems from. Thus, Poly1305 can be expressed by the following expression: 
 $$mac = (m1 * r^4 + m2 * r^3 + m3 * r^2 + m4 * r + k) \mod{p} $$ 
-where $mi$ is the i-th block of the message. Being an authenticator, Poly1305 also takes in a 256 bit secret, derived via a Password-Based Key Derivation Function(PBDKF), 
-that is then split up into two blocks of 128 bits each, the first block being used for the parameter $r$ which will be used as coefficient for the polynomial, and the second 
-for the parameter $k$. Poly1305 works by breaking the input in 16 byte blocks, appending each block with a 1 byte(00000001) to prevent forgery, and then uses
-this values as the coefficients of the polynomial previously described, applying the following algorithm/formula:
+where $mi$ is the i-th block of the message. Being an authenticator,  Poly1305 used a 256 bit key that can be derived via a Password-Based Key Derivation Function(PBKDF)
+or combining a long-term key with a nonce that serve as input to the same symmetric cipher used to encrypt it. The key is then split up into two blocks of 128 
+bits each, the first block being used for the parameter $r$ which will be used as coefficient for the polynomial, and the second for the parameter $k$. 
+Poly1305 works by breaking the input in 16 byte blocks, appending each block with a 1 byte(00000001) to prevent forgery, and then uses this values as the 
+coefficients of the polynomial previously described, applying the following algorithm/formula:
 
 \begin{Verbatim}[fontsize=\footnotesize]
 h = 0
