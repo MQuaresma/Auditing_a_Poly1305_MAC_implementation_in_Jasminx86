@@ -1,4 +1,4 @@
-\documentclass[twocolumn]{article}
+\documentclass{article}
 \usepackage[utf8]{inputenc}
 \usepackage[a4paper, total={7in, 9in}]{geometry}
 \usepackage{appendix}
@@ -13,7 +13,7 @@ block=ragged
 \addbibresource{cryptography.bib}
 
 \begin{document}
-\twocolumn[{    
+{    
     \center
     \textsc{\Large Universidade do Minho} \\ [0.5cm]
     \textsc{\Large Mestrado em Engenharia Informática} \\ [0.5cm]
@@ -27,7 +27,7 @@ block=ragged
     \end{tabular} \\ [0.5cm]
 
     \today \\ [1cm]
-}]
+}
 
 \begin{abstract}
     Poly1305 is a one time authenticator that generates a message authentication code for a given input and secret key using, for that purpose, a similar mechanism to
@@ -328,14 +328,99 @@ fn mulmod(reg u64[3] h, reg u64[2] r, reg u64 r54)
 
 as such we'll verify each of this assumptions individually.
 
+\subsection{First assumption: h[0] and r[0] upper bounder}
+\begin{Verbatim}[fontsize=\footnotesize]
+//   r[0] upper bound is 0x0ffffffc0fffffff (60 bits)
+//   h[0] upper bound is 2**64-1 (64 bits, all bits can be set)
+//   the resulting multiplication requires 124 bits, 60 + 64:
+//   - 0x0ffffffc_0ffffffe_f0000003_f0000001
+\end{Verbatim}
+The most important assumption that serves as the basis for every other is the upper bound for each \texttt{r} and \texttt{h} limb. 
+This bounds are represented as hexadecimal values since they allow for a more comprehensive verification by performing the arithmetic without
+having to convert between representations. 
+To understand upper bound for \texttt{r[0]} we must remember that Poly1305 clears 22 bits from \texttt{r} previous to using it's value. It does so by applying 
+the following mask \texttt{0x0ffffffc0fffffff} with the logic operator \&(and) to the upper 64 bit limb: 
+\begin{Verbatim}[fontsize=\footnotesize]
+r[0] &= 0x0ffffffc0fffffff;
+\end{Verbatim}
+As such, due to the very nature of the \&(and) operation, \texttt{r[0]} will have at most the same number of 1 bits as the mask applied to it. In this case 
+the top 4 bits($0x0=0000_b$) which makes it so that \texttt{r[0]} can span, at most, 60(64-4) bits, which confirms the assumption.
+
+The upper bound for \texttt{h[0]} corrresponds to the case where the limb has all its bits set to 1. Being 64 bits in size means they can have all 64 bits 
+set which sets the upper bound at $(2^{64}-1)_{10}$. 
+
+A multiplication by a power of 2 can be performed by shifting values to the left as many positions as the exponent. Taking $2^{64}-1$ and multiplying it by
+\texttt{r[0]} value would then correspond to shifting \texttt{r} to left by 64 bits, requiring 64 + 60 = 124 bits, and subtracting \texttt{r[0]} to the result:
+$r[0]<<64 - r[0]$ which verifies the assumption about the multiplication of \texttt{h[0]} and \texttt{r[0]}.
+
+\subsection{Second assumption: h[0] and r54 upper bound}
+
+\begin{Verbatim}[fontsize=\footnotesize]
+//   r[1] * 5/4 is precomputed (in clamp function) and it is in r54 variable
+//   r[1] upper bound is : 0x0ffffffc0ffffffc
+//
+//   we compute r54 in the following manner
+//     - r54 = r[1] + r[1]/4 where /4 is performed by a shift to the right
+//       by 2 (first 2 bits of r[1] are 0 (0x..fc))
+//     - r54 upper bound is 0x13fffffb13fffffb which requires 61 bits
+//
+//   the resulting multiplication of (h[1] * r54) requires 125 bits, 61 + 64:
+//     - 0x13fffffb_13fffffa_ec000004_ec000005
+//
+//   since we are adding this partial result to the previous one we get
+//   (124 bits + 125 bits):
+//     - 0x0ffffffc_0ffffffe_f0000003_f0000001 + 
+//     - 0x13fffffb_13fffffa_ec000004_ec000005 =
+//     - 0x23fffff7_23fffff9_dc000008_dc000006 which requires 126 bits
+//       (atm there are only 2 bits left in t[1])
+\end{Verbatim}
+Let's take a look at the upper bound for \texttt{r54}. The first thing to remember is that \texttt{r54=r[1]*5/4} so we can derive it's upper bound from 
+\texttt{r[1]}. \texttt{r[1]}'s upper bound is similar to that of \texttt{r[0]} with the small variation that, additionally to the 10 bits removed from
+\texttt{r[0]}, \texttt{r[1]} also has it's bottom 4 bits removed:
+\begin{Verbatim}[fontsize=\footnotesize]
+r[1] &= 0x0ffffffc0ffffffc;
+\end{Verbatim}
+However, \texttt{r[0]} still requires, at least, 60(=64-4) bits to be represented. 
+\texttt{r54} is a result of multiplying \texttt{r[1]} by $5/4$ which is equivalent to:
+$$r54 = r[1]/4 + r[1] = r[1](1+1/4) = r[1]*5/4 $$
+The division by 4 is performed by shifting \texttt{r[1]} two bits to the right, since it already has it's 4 bottom bits cleared this operation doesn't change
+the upper limit for the bit count however, adding r[1] may involve carry which, in the limit, will set the value of \texttt{r54} to 61($=60+1$) bits.
+
+\begin{tabular}{c c c}
+    &  (r[1]$>>$2)  &\texttt{0x3ffffff03ffffff} \\
++   &  (r[1])       &\texttt{0x0ffffffc0ffffffc} \\
+\hline
+    & (r54)         &\texttt{0x13fffffb13fffffb} \\
+\end{tabular}
+
+Multiplying \texttt{h[1]} by \texttt{r54}, when \texttt{h[1]} is in the upper bound($2^{64}-1$) is equivalent to shifing \texttt{r54} 64 bits to the left and 
+subtracting \texttt{r54}, which is the same as performing an addition with the two's complement of \texttt{r54}(=-\texttt{r54}): \texttt{0xec000004ec000005}.
+\begin{tabular}{c c c}
+    &  (r54<<64)    &\texttt{0x13fffffb13fffffb0000000000} \\
++   &  (-r54)       &\texttt{0xec000004ec000005} \\
+\hline
+    & (r54)         &\texttt{0x13fffffb13fffffbec000004ec000005} \\
+\end{tabular}
+
+Observing the code it's visible that this value(\texttt{high,low=r54*h[1]}), as explained before, will be added to the accumulator \texttt{t}, in this case
+at index 0, to the previous value which required, at most, 124bits. This means that the addition will take up, at most, 126 bits:
+\begin{tabular}{c c c}
+    &  (\texttt{low})        &\texttt{0x13fffffb13fffffaec000004ec000005} \\
++   &  (\texttt{t[0]})       &\texttt{0x0ffffffc0ffffffef0000003f0000001} \\
+\hline
+    & (\texttt{t[0]})        &\texttt{0x} \\
+\end{tabular}
+
 
 \section{Conclusion}
 Futher work, develop Coq proof assistant proof of the implementation.
 
 \printbibliography
 
-\onecolumn
+\newpage
+
 \begin{appendices}
+0x0ffffffc0fffffff<<64 - 0x0ffffffc0fffffff = 0xffffffc0fffffff0000000000000000 - 0x0ffffffc0fffffff = 0xffffffc0ffffffef0000003f0000001
 \end{appendices}
 
 \end{document}
