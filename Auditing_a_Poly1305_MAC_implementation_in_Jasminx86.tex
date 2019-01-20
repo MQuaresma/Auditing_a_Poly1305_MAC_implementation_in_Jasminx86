@@ -30,34 +30,34 @@ block=ragged
 }
 
 \begin{abstract}
-    Poly1305 is a one time authenticator that generates a message authentication code for a given input and secret key using, for that purpose, a similar mechanism to
-    universal hashing. Jasmin is a framework for developing high performance and high assurance cryptographic software. The present works aims to audit an implementation 
-    of the Poly1305 MAC using the Jasmin framework. I'll begin by describing the Poly1305 MAC at a high(abstraction) level, followed by an in-depth analysis of the Jasmin 
-    implementation of the algorithm. The work concludes with a formal verifcation of the assumptions that were made in the implementation.
+    Poly1305 is a message authenticator that generates a message authentication code for a given input and secret key pair using, for that purpose, a similar 
+    mechanism to universal hashing. Jasmin is a framework for developing high performance and high assurance cryptographic software. The present works aims to 
+    audit an implementation of the Poly1305 MAC using the Jasmin framework. I'll begin by describing the Poly1305 MAC at a high(abstraction) level, followed by 
+    an in-depth analysis of the Jasmin implementation of the algorithm. The work concludes with a formal verification of the assumptions that were made in the 
+    implementation.
 \end{abstract}
 
 \section{Introduction}
 Message authentication codes play a major role in guaranteeing the authenticity and integrity of data being sent across an untrusted channel. There are many 
-cryptoprimitives that implement MAC's and, for a long time, HMACs(Hash-MACs) were preferred over others due to their performance, with other primitives such 
+cryptoprimitives that implement MACs and, for a long time, HMACs(Hash-MACs) were preferred over others due to their performance, with other primitives such 
 as the ones based on universal hashing being discarded. This preference was further reinforced by the introduction of assembly instructions to perform hash 
 functions directly in hardware \cite{sha_extensions}, such as Intel's instruction for SHA-256: \texttt{sha256rnds2}. The development of performance focused 
-cryptoprimitives such as the Poly1305 MAC used in conjunction with frameworks such as Jasmin \cite{jasmin_paper} has represented an attempt to reverse this
-tendency. 
+cryptoprimitives such as the Poly1305 MAC, used in conjunction with frameworks such as Jasmin \cite{jasmin_paper} and formally verified implementations, 
+has represented an effort with potential to reverse this tendency. 
 \section{Poly1305 explained}
 \label{poly135_101}
-Poly1305 is a message authentication code(MAC) that guarantees the integrity and authenticity of messages by generating a 16 byte digest using a mechanism similar
-to universal hash functions. Poly1305 can also be paired with a symmetric cipher(\cite{poly1305_aes_bernstein}, \cite{poly1305_chacha20_iot}) 
-that guarantees the confidentiality of the information exchanged. 
-As stated Poly1305 works similarly to a universal hash function, as such it evaluates a polynomial over a prime field, the prime, $2^{130}-5$, being where the 
-name (Poly\textbf{1305}) stems from. Thus, Poly1305 can be expressed by the following expression: 
-$$mac = (m1 * r^4 + m2 * r^3 + m3 * r^2 + m4 * r + k) \mod{p} $$ 
-where $mi$ is the i-th block of the message. Being an authenticator,  Poly1305 used a 256 bit key that can be derived either via a Password-Based Key Derivation 
-Function(PBKDF) or by combining a long-term key with a nonce used as input to the same symmetric cipher used to encrypt the message. The key is then split up 
-into two blocks of 128 bits each, the first block being used for the parameter $r$ and the second for the parameter $k$. Poly1305 works by breaking the input 
-in 16 byte blocks, appending each block with a 1 byte(00000001) to prevent forgery, using this blocks as coefficients of the of the aforementioned polynomial, 
-applying the following algorithm:
+Poly1305 is a message-authentication code that generates a 16 byte digest for a variable length message by evaluating a polynomial over a prime field, similar
+to the way universal hash functions work. It can also be paired with a symmetric cipher(\cite{poly1305_aes_bernstein}, \cite{poly1305_chacha20_iot}) 
+that guarantees the confidentiality of the information exchanged. As stated, Poly1305 is a polynomial-evaluation MAC that works over the prime field 
+\textbf{GF($2^{130}-5$)}, thus the name (Poly\textbf{1305}). The general formula for Poly1305 can be expressed by the following expression: 
+$$Poly1305(m, r, k) = (m1 * r^4 + m2 * r^3 + m3 * r^2 + m4 * r + k) \mod{2^{130}-5} $$ 
+where $mi$ is the i-th block of the message $m$. Being an authenticator, a secret is required, in this case a 256 bit key is used, which can be computed either 
+via a Password-Based Key Derivation Function(PBKDF) or by combining a long-term key with a nonce used as input to the same symmetric cipher used to encrypt the 
+message. The key is then split up into two blocks of 128 bits each, the first block being used for the parameter $r$ and the second for the parameter $k$. To 
+allow for variable length messages these are divided in 16 byte blocks, appending each block with a 1 byte(00000001) to prevent forgery, and using this blocks 
+as coefficients of the aforementioned polynomial:
 
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 h = 0
 for block in blocks:
     h += block
@@ -72,14 +72,12 @@ where:
     \item \texttt{r} and \texttt{k} are the 128 bit values derived from the 256 bit secret
 \end{itemize}
 
-One of the consequences of the presented algorithm is the fact that, after a certain number of blocks, the variable $h$ will overflow due to the successive 
-multiplications to prevent this it is useful to resort to modular arithmetic. With performance being a main focus of Poly1305 it is important that the modular 
-arithmetic is performed as efficiently as possible one. To allow for this to happen the prime chosen must be in the form $2^n-p$, with $p$ a small number, in the 
-case of Poly1305 the prime $2^{130}-5$ was chosen which makes it possible to perform schoolbook multiplication with delayed carry propagation as we will see.
 \subsection{(Schoolbook) Multiplication}
-Following the previously described algorithm, after adding each message block to the current $h$ value, $h$ is multiplied with $r$. 
-The operation is performed by dividing r and h in five 4 byte blocks, called limbs, which are seen as single digits:
-\begin{footnotesize}
+\label{def_limb}
+In Poly1305 each message block is added to an accumulator $h$ and multiplied with $r$. This product involves dividing r and h in five 4 byte blocks, called 
+limbs, which are seen as single digits and are multiplied to get the value of h at each iteration:
+
+
 \begin{tabular}{cccccc}
 \\
     & ($2^{128}$)   & ($2^{96}$)    & ($2^{64}$)    & ($2^{32}$)    & ($2^{0}$)     \\
@@ -91,60 +89,63 @@ The operation is performed by dividing r and h in five 4 byte blocks, called lim
 +   & h2*r2 & h1*r2 & h0*r2 & \textbf{5*h4*r2} & \textbf{5*h3*r2} \\
 +   & h1*r3 & h0*r3 & \textbf{5*h4*r3} & \textbf{5*h3*r3} & \textbf{5*h2*r3} \\
 +   & h0*r4 & \textbf{5*h4*r4} & \textbf{5*h3*r4} & \textbf{5*h2*r4} & \textbf{5*h1*r4}\\
-    &    &    &    &    &    \\
+\\
 \end{tabular}
-\end{footnotesize}
-In \textbf{bold} are the modular reductions of the values overflowing 130 bits. Since the modular reduction is performed over $2^{130}-5$, which requires 130 bits
-to represent, and the limbs are 32 bits, the closest multiple to 130 is 128, thus the limbs are shifted 2 bits to the right. 
-The modular reduction is then achieved by multiplying the (overflowing) limbs by 5, which is congruent with $2^{130}$:
+
+As stated, the operations are performed modulo $2^{130}-5$ which means that values overflowing 130 bits must be reduced. Since the modular reduction 
+is performed with 32 bit limbs and the closest multiple to 130 is 128, before being reduced the limbs are shifted 2 bits to the right. The reduction is achieved
+by multiplying the limb by 5, which is congruent with $2^{130}$ in the field \textbf{GF($2^{130}-5$)}:
 $$2^{130} \equiv 5 \pmod{2^{130}-5}$$ 
-We can now see why choosing a prime in the form of $2^n-q$ is paramount for fast modular arithmetic: it allows for modular reduction to be performed by multiplying 
-by q(=5) (\textbf{n.b.} this isn't a full modular reduction by $2^{130}-5$, this one can be delayed until the very end of the MAC calculation).
+It is now obvious that choosing the right prime is paramount for performance in modular arithmetic: the reductions are just a matter of multiplying each value 
+by a small number such as 5, which can be done extremely fast and reduces the chances of overflowing the registers (\textbf{n.b.} this isn't a full modular 
+reduction by $2^{130}-5$ which will be delayed until the very end of the MAC calculation).
 
 \subsection{Limb size}
-As explained before (\ref{def_limb}), $h$ and $r$ are divided in 32 bit blocks called limbs and subsequently multiplied via schoolbook multiplication. There is 
-however, a caveat in this process: since h and r limbs can span 32 bits  the resulting multiplication can take up 64 bits preventing the delay of carry propagation 
-and hindering performance significantly as a consequence. To prevent this from happening Poly1305 removes 22 bits from r:
-\begin{Verbatim}[fontsize=\footnotesize]
+As explained before (\ref{def_limb}), $h$ and $r$ are divided in 4 byte blocks called limbs prior to calculating their product, and carry propagation is delayed
+until it is mandatory. There is however a caveat in this process: since h and r limbs can span 32 bits  the resulting multiplication can take up 64 bits, 
+preventing the delay of carry propagation and hindering performance significantly, as a consequence. To prevent this from happening the Poly1305 specification 
+removes 22 bits from r by applying a mask to each limb:
+
+\begin{Verbatim}
 r[0] = r[0] & 0x0fffffff
 r[2] = r[2] & 0x0ffffffc
 r[3] = r[3] & 0x0ffffffc
 r[4] = r[4] & 0x0ffffffc
 \end{Verbatim}
 
-Thus each $r$ limb will have, at most, 28 bits set (32-4). As a consequence, even if a h limbs spans 32 bits, h*r will only take up 60 bits (28+32)..
-
-After processing all the message blocks the MAC is generated by adding k and performing a full modular reduction:
+The resulting $r$ limbs will have, at most, 28 bits set (32-4). As a consequence, even if h limbs span 32 bits, $h*r$ will only take up 60 bits (28+32).
+After processing all the message blocks the MAC is generated by adding the rest of 256 bit key, k, and performing a full modular reduction:
 $$mac = (h+k) \mod{2^{130}-5} $$
 \newline
-The full modular reduction is just a matter of checking whether $h+k$ exceeds $2^{130}-5$, and subtracting $2^{130}-5$ if it is.
+The full modular reduction is just a matter of checking whether $h+k$ exceeds $2^{130}-5$, and subtracting $2^{130}-5$ if it does.
 
 \section{Jasmin Poly1305 Implementation}
-Let's now examine an implementation of Poly1305 using Jasmin. As previously stated Jasmin is a framework for developing cryptographic software inspired by qhasm, 
-however Jasmin uses Coq proof assistant to formally verify the (assembly) code generated by the (Jasmin) compiler, providing high \textit{assurance} high 
-performance cryptograhic code \cite{jasmin_paper}. The function that represents the entry point for the implementation has the following signature: 
+The performance focus of Poly1305 allows for implementations that take advantage of modern hardware characteristics, with high parallelizability that can surpass, 
+performance-wise, hash based MACs. It's important however for these implementations not to disregard the assurance needs of cryptographic software. For this 
+reason we will examine the use of the Jasmin framework, which has performance and assurance as the main focus, for implementing Poly1305. Jasmin is based on qhasm, 
+however it uses Coq proof assistant to formally verify the (assembly) code generated by the (Jasmin) compiler, providing high assurance high performance 
+cryptograhic code \cite{jasmin_paper}. In this case the function that represents the entry point for code developed has the following signature: 
 
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 
 poly1305_ref3(reg u64 out, reg u64 in, reg u64 inlen, reg u64 k)
 
 \end{Verbatim}
 
-The parameters \texttt{out, in} and \texttt{k} are (64 bit) pointers to the output, input message and 256 bit secret location in memory. The \texttt{inlen} 
-parameter holds, as the name implies, the length of the input.
+The parameters \texttt{out, in} and \texttt{k} are 64 bit memory pointers to the 16 byte output code, input message and 256 bit secret location in memory. The 
+\texttt{inlen} parameter holds, as the name implies, the length of the input.
 
 \subsection{Setup}
-The parameters used by Poly1305(h, r, k) are loaded and initialized by calling:
-\begin{Verbatim}[fontsize=\footnotesize]
+The initial values for this parameters are set by calling:
+\begin{Verbatim}
 
 fn poly1305_ref3_setup(reg u64 k) 
     -> reg u64[3], reg u64[2], reg u64, reg u64
 
 \end{Verbatim}
 
-which sets h to 0, loads r and pre computes r54 = r*5/4. This pre computation is important as it allows for the value to be reused without needing to calculate 
-it everytime.
-\begin{Verbatim}[fontsize=\footnotesize]
+This function sets h to 0, loads r and pre computes r54 = r*5/4. This pre computation removes the need to calculate the value at every use.
+\begin{Verbatim}
     r = load(k);
     r[0] &= 0x0ffffffc0fffffff;
     r[1] &= 0x0ffffffc0ffffffc;
@@ -155,9 +156,9 @@ it everytime.
 \end{Verbatim}
 
 \subsection{MAC Calculation}
-The message digest (MAC) is calculated by calling \texttt{poly1305\_ref3\_update}, which breaks the message in 16 byte blocks adds each block to \texttt{h} 
-and performs the multplication with modular reduction, similar to the algorithm described in section \ref{poly135_101}:
-\begin{Verbatim}[fontsize=\footnotesize]
+The message digest (MAC) is calculated by calling \texttt{poly1305\_ref3\_update}, which breaks the input in 16 byte blocks, adding each block to \texttt{h} 
+and multiplying the result with \texttt{r} $\mod 2^{130}$, similar to the algorithm described in section \ref{poly135_101}:
+\begin{Verbatim}
 while(inlen >= 16)
   { m = load(in);
     h = add_bit(h, m, 1);
@@ -168,13 +169,13 @@ while(inlen >= 16)
 \end{Verbatim}
 
 Each 16 byte block is loaded from the memory location pointed to by \texttt{in} and added to the accumulator \texttt{h} by calling:
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 fn add_bit(reg u64[3] h, reg u64[2] m, inline int b) 
     -> reg u64[3]
 \end{Verbatim}
 
-which appending a 1 byte to each message block previously. The multiplication and modular reduction are performed by calling:
-\begin{Verbatim}[fontsize=\footnotesize]
+It's important to note that, to prevent forgery, \texttt{add\_bit} also appends a 1 byte to each message block. The modular multiplication is performed by calling:
+\begin{Verbatim}
 
 fn mulmod(reg u64[3] h, reg u64[2] r, reg u64 r54) 
    -> reg u64[3]
@@ -183,11 +184,13 @@ fn mulmod(reg u64[3] h, reg u64[2] r, reg u64 r54)
 which returns the value of \texttt{h} after each iteration.
 
 \subsubsection{Modular multiplication}
-To understand the mechanism used by \texttt{mulmod} to perform modular multiplication, it's important to note that this implementation 64 bit limbs 
-\texttt{(reg u64[3] h, reg u64[2] r, reg u64 r54)} instead of the 32 bit ones described earlier, hence the schoolbook multiplication takes the form of:
+The mechanism used by \texttt{mulmod} to perform modular multiplication is a slight variation of the one showcased earlier. This is is because the limbs, in
+this case, are 64 bits in size\texttt{(reg u64[3] h, reg u64[2] r, reg u64 r54)} as opposed to 32 bits ones, hence the schoolbook multiplication takes the form 
+of:
+
 
 \begin{tabular}{cccc}
-    &           &                   &                   \\
+\\
     &($2^{128}$)& ($2^{64}$)        & ($2^{0}$)         \\
     & h2        & h1                & h0                \\
 *   &           & r1                & r0                \\
@@ -195,61 +198,52 @@ To understand the mechanism used by \texttt{mulmod} to perform modular multiplic
     & h2*r0     & h0*r1             & h0*r0             \\ 
 +   &           & h1*r0             & \textbf{h1*5*r1}  \\
 +   &           & \textbf{h2*5*r1}  &                   \\
-    &           &                   &                   \\
+\\
 \end{tabular}
+
 
 which is equivalent to:
 $$ 2^{128}*h2*r0 + 2^{64}*(h0*r1+h1*r0+h2*r54) + h0*r0+h1*r54 $$
 
-With this considered we can now examine the way \texttt{mulmod} works. For the first two 64 bit limbs the code that implements the calculations presented are 
-similar. Therefore, for sake of simplicity, only the code block corresponding to $h0*r0+h1*r54$ will be analyzed:
+To perform the multiplication, two variables are declared in \texttt{mulmod}: \texttt{low} which is used to store the \texttt{h} limbs at each 64 bit 
+multiplication, since the h values are used multiple times and can't be overwritten(this will not stand for the $h2*r0$ product as we will see); \texttt{high} 
+which is used to hold the carry of the products between each \texttt{r} and \texttt{h} limb. 
+Because the code for the first two 64 bit blocks is similar, this analysis will only contemplate the portion corresponding to $h0*r0+h1*r54$, as the other 
+one ($2^{64}*(h0*r1+h1*r0+h2*r54)$) is performed by applying the same general principles. The following code snippet performs the $h0*r0$ operation:
 
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 low = h[0];
 high, low = low * r[0];
 t[0] = low;
 t[1] = high;
-...
+\end{Verbatim}
+
+The result of the multiplications are (temporarily) stored in the \texttt{t} array, where each position represents a digit between $0$ and $2^{64}-1$:
+
+\begin{tabular}{cccc}
+\\
+$2^{128}$       & $2^{64}$        & $2^{0}$         \\
+\texttt{t[2]}   & \texttt{t[1]}   & \texttt{t[0]}   \\
+\\
+\end{tabular}
+
+In this case, since \texttt{high} contains the carry from the \texttt{low*r[0]} product, it is assigned to \texttt{t[1]}, as it overflows the first 64 bits. 
+As is the case for subsequent \texttt{high} values. will follow the same guideline.
+The $h1*r1$ operation is similar to the previous one however, in this case, since the value overflows 130 bits it must be reduced by multiplying the result by 
+$5$ and dividing it by $4$. This value is pre computed by the \texttt{clamp} function and stored in \texttt{r54}, resulting in the following code:
+\begin{Verbatim}
 low = h[1];
 high, low = low * r54;
 cf, t[0] += low;
  _, t[1] += high + cf;
 \end{Verbatim}
 
-To perform the multiplication, two variables are declared in \texttt{mulmod}: \texttt{low} which is used to store the \texttt{h} limbs since these are used multiple
-times and can't be overwritten (this will not stand for the $h2*r0$ product as we will see) and \texttt{high} which holds the carry of the product between 
-each \texttt{r} and \texttt{h} limb. The lines 
-\begin{Verbatim}[fontsize=\footnotesize]
-high, low = low * r[0];
-high, low = low *r54
-\end{Verbatim}
-perform the products $h0*r0$ and $h1*(r1>>2)*5$ respectively.
-The result of these products are then stored in the \texttt{t} array, which is seen as a little-endian number where each position represents a digit between $0$ 
-and $2^{64}-1$: 
-\begin{itemize}
-    \item t[0] : $2^{0}$
-    \item t[1] : $2^{64}$
-    \item t[2] : $2^{128}$
-\end{itemize}
-
-The carry stored in \texttt{high} is added to the following 64 bit limb of \texttt{t}:
-\begin{Verbatim}[fontsize=\footnotesize]
-t[1] = high;
-...
- _, t[1] += high + cf;
-\end{Verbatim}
-The modulo reduction is performed by multiplying $h1$ (or $h2$) with the pre calculated value $r54=r1>>2*5$. The same mechanism is used for $h2*5*r1$:
-\begin{Verbatim}[fontsize=\footnotesize]
-low = h[2];
-low *= r54;
-\end{Verbatim}
-
-After performing all the smaller(magnitude) operations, $h2*r0$ is performed inplace: \texttt{h[2] *= r[0];} and the value of \texttt{h} is merged with that
-of \texttt{t}.
-Since \texttt{h[2]} is a 64 bit value, as are \texttt{h[1]} and \texttt{h[0]}, we need to reduce \texttt{h[2]} to make sure h has, at most, 130 bits set. 
-First we we shift the value of \texttt{h[2]} 2 bits to the right keeping the 2 least significant bits to make it 130 bits since \texttt{h[1]} and \texttt{h[0]}
-already have 64 bits each, totalling 128 bits. After the shift we use the modular reduction trick by multiplying $h[2]>>2$ with $5$:
-\begin{Verbatim}[fontsize=\footnotesize]
+After performing all the smaller (order) operations, $h2*r0$ is calculated (inplace): \texttt{h[2] *= r[0];} and the value of \texttt{h} is merged with that
+of \texttt{t}. Considering that \texttt{h[2]} is a 64 bit value, as are \texttt{h[1]} and \texttt{h[0]}, we need to reduce \texttt{h[2]} to make sure h has, at 
+most, 130 bits set. To do so requires that we shift the value of \texttt{h[2]} 2 bits to the right, keeping the 2 least significant bits to make it 130 bits, 
+since \texttt{h[1]} and \texttt{h[0]} already have 64 bits each, totalling 128 bits. After the shift we use the modular reduction trick by multiplying $h[2]>>2$ 
+with $5$:
+\begin{Verbatim}
 h2r = h[2];
 h2rx4 = h[2];
 h[2] &= 3; // clear the remaining bits
@@ -260,7 +254,7 @@ h2r += h2rx4;
 
 The value in $h2r$ ($h2r$educed) is then added to h[0] and the carry is propagated:
 
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 cf, h[0] += h2r;
 cf, h[1] += 0 + cf;
 _, h[2] += 0 + cf;
@@ -268,8 +262,8 @@ _, h[2] += 0 + cf;
 
 making $\texttt{h} = (h*r)\mod{2^{130}}$, which is returned by \texttt{mulmod}.
 
-After all the 16 byte blocks have been digested, \texttt{poly1305\_ref3\_last} handles the remaining bytes, when the message size isn't a multiple of 16 bytes:
-\begin{Verbatim}[fontsize=\footnotesize]
+After all the 16 byte blocks have been digested \texttt{poly1305\_ref3\_last} handles the remaining bytes, when the message size isn't a multiple of 16 bytes:
+\begin{Verbatim}
 if(inlen > 0)
   { m = load_last(in, inlen);
     // load last already sets the last bit
@@ -278,7 +272,7 @@ if(inlen > 0)
   }
 \end{Verbatim}
 In this case, \texttt{load\_last} is responsible for setting the last bit of the block to one:
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
   s[0] = 0;
   s[1] = 0;
 
@@ -293,22 +287,67 @@ In this case, \texttt{load\_last} is responsible for setting the last bit of the
 \end{Verbatim}
 
 \subsubsection{Full modular reduction}
-The full modular reduction, as we already mentioned, is only performed at the end by calling:
-\begin{Verbatim}[fontsize=\footnotesize]
+Before adding $k$, the last 128 bits of the key, a final reduction $\mod 2^{130}$ is performed by calling:
+\begin{Verbatim}
 fn freeze(reg u64[3] h) -> reg u64[3]
 \end{Verbatim}
 
+To perform the reduction, \texttt{h} is assigned to \texttt{g} which is reduced $\mod 2^{130}-5$ by adding 5 and propagating the carry:
+\begin{Verbatim}
+g = h;
+
+cf, g[0] += 5;
+cf, g[1] += 0 + cf;
+_, g[2] += 0 + cf;
+\end{Verbatim}
+After this a check is performed to verify whether \texttt{g} overflows 130 bits, which occurs when the value of \texttt{g[2]} has more than two bits sets after 
+carry propagation. To perform this check a mask corresponding to the two's complement of \texttt{g[2]$>>$2} is applied to the two lower limbs: 
+\begin{Verbatim}
+  mask = -g[2];
+
+  g[0] ^= h[0];
+  g[1] ^= h[1];
+
+  g[0] &= mask;
+  g[1] &= mask;
+\end{Verbatim}
+This mask will be $0$ when \texttt{g[2]} has less than two bits set and $2^{64}-1$ otherwise.
+\begin{Verbatim}
+  // if bit == 1 then h[0..1] ^= (g[0..1] ^ h[0..1])
+  // else             h[0..1] ^= 0
+  h[0] ^= g[0];
+  h[1] ^= g[1];
+
+  // at this point we only need the first 128 bits
+  return h;
+\end{Verbatim}
+The reduction is then peformed by combining the two lower limbs of \texttt{h} and \texttt{g} via the xor operator and storing the result in \texttt{h}:
+\begin{Verbatim}
+// if bit == 1
+h[0] = h[0] ^ (g[0] ^ h[0]) = h[0] ^ h[0] ^ g[0] = 0 ^ g[0] = g[0];
+h[1] = h[1] ^ (g[1] ^ h[1]) = h[1] ^ h[1] ^ g[1] = 0 ^ g[1] = g[1];
+
+// else
+h[0] = h[0] ^ (g[0] ^ h[0]) & 0 = h[0] ^ 0 = h[0];
+h[1] = h[1] ^ (g[1] ^ h[1]) & 0 = h[1] ^ 0 = h[1];
+\end{Verbatim}
+The last 128 bits of the original key value are added to the value returned by \texttt{freeze} and the digest is stored in the memory location pointed to by 
+\texttt{out}:
+\begin{Verbatim}
+h = freeze(h);
+s = load(k);
+h = add_bit(h, s, 0);
+store(out, h);
+\end{Verbatim}
 
 \section{Code verification/audition}
-Formal verification is one of the most important parts of developing software systems used in crytical environments as it provides mathematical proof of the
-correctness of an implementation without needing to test all the possible inputs/use, serving as a more trustworthy methodology to traditional software 
-testing. There are many tools available to perform formal verification of cryptographic and other software systems(see \cite{coq_proof} and \cite{easycrypt}) 
-however the proof I'll present here serves only as a possible template from which to build proofs with such tools.
-It's important to take into account the fact that this assumptions were made to allow for a faster implementation.
-A close inspection of the code allows us to identify that the assumptions made throught the development all in the form of comments, mainly on the
-\texttt{mulmod} function, as the developer points out:
-
-\begin{Verbatim}[fontsize=\footnotesize]
+Formal verification is one of the most important parts of developing software systems used in critical environments, as it provides mathematical proof of the
+correctness of an implementation without needing to test all the possible inputs, serving as a more trustworthy methodology to traditional software 
+testing. There are many tools available to perform formal verification of cryptographic software and other systems(see \cite{coq_proof} and \cite{easycrypt}) 
+however, the proof hereby presented is in the form of mathematical calculations that should serve only as a possible template from which to build formal proofs 
+with such tools. The assumptions made in the previous implementation are present in the form of comments, mainly on the \texttt{mulmod} function, as pointed out 
+by the developer:
+\begin{Verbatim}
 // note: throughout this function there are 
 // some --informal-- comments regarding
 // safety. The main goal is to count the 
@@ -321,36 +360,46 @@ fn mulmod(reg u64[3] h, reg u64[2] r, reg u64 r54)
 -> reg u64[3]
 \end{Verbatim}
 
-as such we'll verify each of this assumptions individually.
+To keep this verification short and concise only the verification of the first two assumptions will be presented.
 
 \subsection{First assumption: h[0] and r[0] upper bounder}
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 //   r[0] upper bound is 0x0ffffffc0fffffff (60 bits)
 //   h[0] upper bound is 2**64-1 (64 bits, all bits can be set)
 //   the resulting multiplication requires 124 bits, 60 + 64:
 //   - 0x0ffffffc_0ffffffe_f0000003_f0000001
 \end{Verbatim}
-The most important assumption that serves as the basis for every other is the upper bound for each \texttt{r} and \texttt{h} limb. 
-This bounds are represented as hexadecimal values since they allow for a more comprehensive verification by performing the arithmetic without
-having to convert between representations. 
-To understand upper bound for \texttt{r[0]} we must remember that Poly1305 clears 22 bits from \texttt{r} previous to using it's value. It does so by applying 
-the following mask \texttt{0x0ffffffc0fffffff} with the logic operator \&(and) to the upper 64 bit limb: 
-\begin{Verbatim}[fontsize=\footnotesize]
+The first assumption made plays an integral role in every other that follows and it relates to the upper bounds for each \texttt{r} and \texttt{h} limb. 
+This bounds are represented as hexadecimal values which allows for modular arithmetic to performed without having to convert between different numerical 
+representations. The upper bound for \texttt{r[0]} is set taking into account that Poly1305 clears 22 bits from \texttt{r}, previous to using it's value. It does so by applying 
+the mask \texttt{0x0ffffffc0fffffff} via the logic operator \&(and) to the upper 64 bit limb: 
+\begin{Verbatim}
 r[0] &= 0x0ffffffc0fffffff;
 \end{Verbatim}
-As such, due to the very nature of the \&(and) operation, \texttt{r[0]} will have at most the same number of 1 bits as the mask applied to it. In this case 
-the top 4 bits($0x0=0000_b$) which makes it so that \texttt{r[0]} can span, at most, 60(64-4) bits, which confirms the assumption.
+As such, due to the very nature of the \&(and) operator, \texttt{r[0]} will have, at most, the same number of 1 bits as the mask applied to it. In this case 
+the top 4 bits(0x0=$0000_b$) of \texttt{r[0]} are cleared so it can span, at most, 60(64-4) bits.
 
-The upper bound for \texttt{h[0]} corrresponds to the case where the limb has all its bits set to 1. Being 64 bits in size means they can have all 64 bits 
-set which sets the upper bound at $(2^{64}-1)_{10}$. 
+The upper bound for \texttt{h[0]} corrresponds to the case where the limb has all its bits set to 1. Being 64 bits in size means that when all the bits are set 
+the value of \texttt{h[0]} is $(2^{64}-1)_{10}$, which confirms the upper bound set for this limb.
 
-A multiplication by a power of 2 can be performed by shifting values to the left as many positions as the exponent. Taking $2^{64}-1$ and multiplying it by
-\texttt{r[0]} value would then correspond to shifting \texttt{r} to left by 64 bits, requiring 64 + 60 = 124 bits, and subtracting \texttt{r[0]} to the result:
-$r[0]<<64 - r[0]$ which verifies the assumption about the multiplication of \texttt{h[0]} and \texttt{r[0]}.
+Multiplying \texttt{r[0]} by \texttt{h[0]}, when \texttt{h[0]} is equal to $(2^{64}-1)_{10}$, is the same as: \texttt{r[0]*}$2^{64}$\texttt{-r[0]}. This value
+can be calculated by shifting \texttt{r[0]} 64 bits to the left and subtracting \texttt{r[0]} to the result, requiring a total of 60+64=124 bits: 
+
+\begin{tabular}{c c c}
+\\
+    &  \texttt{(r[0]$<<$64)}     &\texttt{0x0ffffffc0ffffffe0000000000000000} \\
++   &  \texttt{(-r[0])}          &\texttt{0x0000000000000000f0000003f0000001} \\
+\hline
+    &  \texttt{(t[1],t[0])}      &\texttt{0x0ffffffc0ffffffef0000003f0000001} \\
+\\
+\end{tabular}
+
+
+confirming the assumption made.
 
 \subsection{Second assumption: h[0] and r54 upper bound}
 
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}
 //   r[1] * 5/4 is precomputed (in clamp function) and it is in r54 variable
 //   r[1] upper bound is : 0x0ffffffc0ffffffc
 //
@@ -369,53 +418,66 @@ $r[0]<<64 - r[0]$ which verifies the assumption about the multiplication of \tex
 //     - 0x23fffff7_23fffff9_dc000008_dc000006 which requires 126 bits
 //       (atm there are only 2 bits left in t[1])
 \end{Verbatim}
-Let's take a look at the upper bound for \texttt{r54}. The first thing to remember is that \texttt{r54=r[1]*5/4} so we can derive it's upper bound from 
-\texttt{r[1]}. \texttt{r[1]}'s upper bound is similar to that of \texttt{r[0]} with the small variation that, additionally to the 10 bits removed from
-\texttt{r[0]}, \texttt{r[1]} also has it's bottom 4 bits removed:
-\begin{Verbatim}[fontsize=\footnotesize]
-r[1] &= 0x0ffffffc0ffffffc;
-\end{Verbatim}
-However, \texttt{r[0]} still requires, at least, 60(=64-4) bits to be represented. 
-\texttt{r54} is a result of multiplying \texttt{r[1]} by $5/4$ which is equivalent to:
-$$r54 = r[1]/4 + r[1] = r[1](1+1/4) = r[1]*5/4 $$
-The division by 4 is performed by shifting \texttt{r[1]} two bits to the right, since it already has it's 4 bottom bits cleared this operation doesn't change
-the upper limit for the bit count however, adding r[1] may involve carry which, in the limit, will set the value of \texttt{r54} to 61($=60+1$) bits.
+The next assumption sets the upper bound for \texttt{r54}. The first thing to remember is that \texttt{r54=r[1]*5/4} so we can derive it's upper bound from 
+\texttt{r[1]}. The mask applied to \texttt{r[1]} removes an additional 10 bits in relation to \texttt{r[0]} however, the upper bounds for both values are
+similar since \texttt{r[1]} still requires 60 bits to be represented. Using this upper bound we can now proceed to determine \texttt{r54}'s upper bound. 
+\texttt{r54} is the result of multiplying \texttt{r[1]} by $5/4$, which is equivalent to:
+$$r54 = r[1]*5/4 = r[1]/4 + r[1] $$
+The division by 4 is performed by shifting \texttt{r[1]} two bits to the right, since it already has it's 4 bottom bits cleared this operation doesn't change 
+the amount of 1 bits \texttt{r54} can have set. However, adding \texttt{r[1]} may involve carry will make it so that the upper bound for \texttt{r54} takes 
+requires 61($=60+1$) bits to be represented.
+
 
 \begin{tabular}{c c c}
-    &  (r[1]$>>$2)  &\texttt{0x3ffffff03ffffff} \\
-+   &  (r[1])       &\texttt{0x0ffffffc0ffffffc} \\
+\\
+    &  \texttt{(r[1]$>>$2)}     &\texttt{0x03ffffff03ffffff} \\
++   &  \texttt{(r[1])}          &\texttt{0x0ffffffc0ffffffc} \\
 \hline
-    & (r54)         &\texttt{0x13fffffb13fffffb} \\
+    &  \texttt{(r54)}           &\texttt{0x13fffffb13fffffb} \\
+\\
 \end{tabular}
 
-Multiplying \texttt{h[1]} by \texttt{r54}, when \texttt{h[1]} is in the upper bound($2^{64}-1$) is equivalent to shifing \texttt{r54} 64 bits to the left and 
-subtracting \texttt{r54}, which is the same as performing an addition with the two's complement of \texttt{r54}(=-\texttt{r54}): \texttt{0xec000004ec000005}.
+The upper bound for \texttt{h[1]} is the same as for \texttt{h[0]} thus, multiplying \texttt{h[1]} by \texttt{r54}, when \texttt{h[1]} equals $2^{64}-1$, 
+is equivalent to shifting \texttt{r54} 64 bits to the left and subtracting \texttt{r54}, which is the same as performing an addition with the two's complement of 
+\texttt{r54}: \texttt{0xec000004ec000005}.
+
+
 \begin{tabular}{c c c}
-    &  (r54<<64)    &\texttt{0x13fffffb13fffffb0000000000} \\
-+   &  (-r54)       &\texttt{0xec000004ec000005} \\
+\\
+    &  \texttt{(r54$<<$64)}     &\texttt{0x13fffffb13fffffa0000000000000000} \\
++   &  \texttt{(-r54)}          &\texttt{0x0000000000000000ec000004ec000005} \\
 \hline
-    & (r54)         &\texttt{0x13fffffb13fffffbec000004ec000005} \\
+    &  \texttt{(r54)}           &\texttt{0x13fffffb13fffffaec000004ec000005} \\
+\\
 \end{tabular}
 
-Observing the code it's visible that this value(\texttt{high,low=r54*h[1]}), as explained before, will be added to the accumulator \texttt{t}, in this case
-at index 0, to the previous value which required, at most, 124bits. This means that the addition will take up, at most, 126 bits:
+
+As in the previous operation, the value of the 64 least significant bits of \texttt{r54*h[1]} are stored in \texttt{low} and the carry is stored in \texttt{high}
+This values are added to \texttt{t} and the result takes up 126 bits:
+
 \begin{tabular}{c c c}
-    &  (\texttt{low})        &\texttt{0x13fffffb13fffffaec000004ec000005} \\
-+   &  (\texttt{t[0]})       &\texttt{0x0ffffffc0ffffffef0000003f0000001} \\
+\\
+    &  \texttt{(high,low)}       &\texttt{0x13fffffb13fffffaec000004ec000005}\\
++   &  \texttt{(t[1],t[0])}      &\texttt{0x0ffffffc0ffffffef0000003f0000001}\\
 \hline
-    & (\texttt{t[0]})        &\texttt{0x} \\
+    & \texttt{(t[1],t[0])}       &\texttt{0x23fffff723fffff9dc000008dc000006}\\
+\\
 \end{tabular}
 
+verifying the assumption that was made about the value of \texttt{t[0]} and \texttt{t[1]}.
+
+\subsection{Final assumption}
+The verification of the remaining assumptions follows the same guidelines however, the upper bound for \texttt{h[2]} varies between the first and remaining 
+iterations, being 0x3 and 0x1 respectively.
 
 \section{Conclusion}
-Futher work, develop Coq proof assistant proof of the implementation.
-
+Poly1305 is a message-authentication code developed with a focus on performance. Consequently, every aspect of it's specification has this objective 
+in mind, from the choice of performing the polynomial evaluation over a prime field instead of a binary field to the use of a prime that allows for modular 
+arithmetic to be performed in the most efficient manner. Additionaly, the use of Poly1305 in conjunction with AES, besides being parallelizable, offers a 
+security level close to that of AES, meaning that an attacker can only obtain a sucessfull forgery if it can break AES. 
+Thus, to guarantee this security and performance it's paramount to implement Poly1305 using a high assurance framework such as Jasmin, using formal verification
+as a means to prove the stated properties. Therefore, the work hereby presented, accomplished the goal of providing a framework from which a formal verification 
+for the analyzed implementation can be constructed.
 \printbibliography
-
-\newpage
-
-\begin{appendices}
-0x0ffffffc0fffffff<<64 - 0x0ffffffc0fffffff = 0xffffffc0fffffff0000000000000000 - 0x0ffffffc0fffffff = 0xffffffc0ffffffef0000003f0000001
-\end{appendices}
 
 \end{document}
