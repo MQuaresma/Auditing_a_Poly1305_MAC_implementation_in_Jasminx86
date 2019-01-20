@@ -311,25 +311,18 @@ carry propagation. To perform this check a mask corresponding to the two's compl
   g[0] &= mask;
   g[1] &= mask;
 \end{Verbatim}
-This mask will be $0$ when \texttt{g[2]} has less than two bits set and $2^{64}-1$ otherwise.
+This mask will be $0$ when \texttt{g[2]} has less than two bits set and $2^{64}-1$ otherwise. The reduction is then peformed by combining the two lower limbs 
+of \texttt{h} and \texttt{g} via the xor operator and storing the result in \texttt{h}:
 \begin{Verbatim}
-  // if bit == 1 then h[0..1] ^= (g[0..1] ^ h[0..1])
-  // else             h[0..1] ^= 0
-  h[0] ^= g[0];
-  h[1] ^= g[1];
+h[0] ^= g[0]; 
+h[1] ^= g[1];
 
-  // at this point we only need the first 128 bits
-  return h;
-\end{Verbatim}
-The reduction is then peformed by combining the two lower limbs of \texttt{h} and \texttt{g} via the xor operator and storing the result in \texttt{h}:
-\begin{Verbatim}
 // if bit == 1
-h[0] = h[0] ^ (g[0] ^ h[0]) = h[0] ^ h[0] ^ g[0] = 0 ^ g[0] = g[0];
-h[1] = h[1] ^ (g[1] ^ h[1]) = h[1] ^ h[1] ^ g[1] = 0 ^ g[1] = g[1];
-
+//h[0] = h[0] ^ (g[0] ^ h[0]) = h[0] ^ h[0] ^ g[0] = 0 ^ g[0] = g[0];
+//h[0] = h[1] ^ (g[1] ^ h[1]) = h[1] ^ h[1] ^ g[1] = 0 ^ g[1] = g[1];
 // else
-h[0] = h[0] ^ (g[0] ^ h[0]) & 0 = h[0] ^ 0 = h[0];
-h[1] = h[1] ^ (g[1] ^ h[1]) & 0 = h[1] ^ 0 = h[1];
+//h[0] = h[0] ^ (g[0] ^ h[0]) & 0 = h[0] ^ 0 = h[0];
+//h[1] = h[1] ^ (g[1] ^ h[1]) & 0 = h[1] ^ 0 = h[1];
 \end{Verbatim}
 The last 128 bits of the original key value are added to the value returned by \texttt{freeze} and the digest is stored in the memory location pointed to by 
 \texttt{out}:
